@@ -58,7 +58,7 @@ App* App::s_instance = nullptr;
 // App
 //
 
-App::App(IEventQueue* events, CreateTaskBarReceiverFunc createTaskBarReceiver, ArgsBase* args) :
+App::App(IEventQueue* events, CreateTaskBarReceiverFunc createTaskBarReceiver, lib::synergy::ArgsBase* args) :
     m_bye(&exit),
     m_taskBarReceiver(NULL),
     m_suspended(false),
@@ -83,15 +83,27 @@ App::~App()
 void
 App::version()
 {
-    char buffer[500];
-    sprintf(
+    static const size_t buffer_size = 500;
+    static const size_t cpight_size = 200;
+
+    char copyrightBuffer[cpight_size];
+    snprintf(
+            copyrightBuffer,
+            cpight_size,
+            kCopyright,
+            kBuildYear
+    );
+
+    char buffer[buffer_size];
+    snprintf(
         buffer,
+        buffer_size,
         "%s %s, protocol version %d.%d\n%s",
         argsBase().m_pname,
         kVersion,
         kProtocolMajorVersion,
         kProtocolMinorVersion,
-        kCopyright
+        copyrightBuffer
         );
 
     std::cout << buffer << std::endl;
@@ -266,7 +278,7 @@ App::runEventsLoop(void*)
 //
 
 MinimalApp::MinimalApp() :
-    App(NULL, NULL, new ArgsBase())
+    App(NULL, NULL, new lib::synergy::ArgsBase())
 {
     m_arch.init();
     setEvents(m_events);

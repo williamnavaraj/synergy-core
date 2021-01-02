@@ -59,9 +59,13 @@ public:
     */
     Client(IEventQueue* events, const String& name,
            const NetworkAddress& address, ISocketFactory* socketFactory,
-           synergy::Screen* screen, ClientArgs const& args);
-
+           synergy::Screen* screen, lib::synergy::ClientArgs const& args);
+    Client(Client const &) =delete;
+    Client(Client &&) =delete;
     ~Client();
+
+    Client& operator=(Client const &) =delete;
+    Client& operator=(Client &&) =delete;
 
     //! @name manipulators
     //@{
@@ -119,7 +123,7 @@ public:
     */
     NetworkAddress        getServerAddress() const;
     
-    //! Return true if recieved file size is valid
+    //! Return true if received file size is valid
     bool                isReceivedFileSizeValid();
 
     //! Return expected file size
@@ -222,7 +226,7 @@ private:
     Thread*             m_writeToDropDirThread;
     TCPSocket*          m_socket;
     bool                m_useSecureNetwork;
-    ClientArgs          m_args;
     bool                m_enableClipboard;
     size_t              m_maximumClipboardSize;
+    lib::synergy::ClientArgs          m_args;
 };

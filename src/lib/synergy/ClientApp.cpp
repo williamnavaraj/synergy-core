@@ -63,7 +63,7 @@
 #define RETRY_TIME 1.0
 
 ClientApp::ClientApp(IEventQueue* events, CreateTaskBarReceiverFunc createTaskBarReceiver) :
-    App(events, createTaskBarReceiver, new ClientArgs()),
+    App(events, createTaskBarReceiver, new lib::synergy::ClientArgs()),
     m_client(NULL),
     m_clientScreen(NULL),
     m_serverAddress(NULL)
@@ -118,10 +118,11 @@ ClientApp::help()
 #  define WINAPI_ARG
 #  define WINAPI_INFO
 #endif
-
-    char buffer[2000];
-    sprintf(
+    static const int buffer_size = 2000;
+    char buffer[buffer_size];
+    snprintf(
         buffer,
+        buffer_size,
         "Usage: %s"
         " [--yscroll <delta>]"
         WINAPI_ARG

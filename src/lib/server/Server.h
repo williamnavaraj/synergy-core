@@ -107,8 +107,13 @@ public:
     ownership of \p primaryClient.
     */
     Server(Config& config, PrimaryClient* primaryClient,
-        synergy::Screen* screen, IEventQueue* events, ServerArgs const& args);
+        synergy::Screen* screen, IEventQueue* events, lib::synergy::ServerArgs const& args);
+    Server(Server const &) =delete;
+    Server(Server &&) =delete;
     ~Server();
+
+    Server& operator=(Server const &) =delete;
+    Server& operator=(Server &&) =delete;
 
 #ifdef TEST_ENV
     Server() : m_mock(true), m_config(NULL) { }
@@ -481,5 +486,5 @@ private:
     bool                m_waitDragInfoThread;
 
     ClientListener*        m_clientListener;
-    ServerArgs            m_args;
+    lib::synergy::ServerArgs            m_args;
 };

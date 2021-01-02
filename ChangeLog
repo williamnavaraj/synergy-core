@@ -1,13 +1,112 @@
-v1.12.0-snapshot
+v1.13.1-snapshot
+===========
+===========
+
+v1.13.0-stable
+===========
+Bug fixes:
+- #6858 Application is blurry and unfocused on macOS
+- #6872 Check for dns_sd.h only when building GUI
+- #6874 The logo on Windows taskbar is incorrect.
+- #6879 Update macOS installer drive icons
+- #6878 Update googletest library to latest version
+- #6882 Build macOS using qt 5.15.2 and avoid using brew for build
+- #6884 Fix logo for Linux and dark logo for macOS
+- #6886 Upadte Welcome screen
+
+Enhancements:
+- #6867 Create only 1 artefact for macOS
+- #6885 Make build for every merge to master
+
+v1.13.0-rc2
+===========
+Bug fixes:
+- #6831 Incorporating Sonar's major
+- #6837 Memory leaks on macOS system
+- #6838 Enterprise asks for serial key on Linux system
+- #6849 Auto-hide resets itself
+- #6846 TLS certificate is not created by default for Synergy Enterprise.
+- #6859 Systray Icon on Ubuntu Auto Start
+- #6863 Adding MacOS CI Build Steps for Homebrew Cleanup
+
+Enhancements:
+- #6836 Enabling Github Code Scanning
+- #6841 Windows installer has been updated.
+- #6844 macOS installer has been updated.
+- #6860 About Synergy logo refreshed
+- #6865 Updated visual assets
+
+v1.12.x-snapshot
+===========
+Bug fixes:
+- #6753 Fixed a number of vulnerabilities detected by static analysis
+- #6567 Fixed Synergy spawning hundreds of zombie processes
+- #6755 Fixed Vulnerability in vreadf function detected by Static analysis
+- #6758 Account name with space on windows causes synergy to error when starting
+- #6760 Synergy loses license when creating a System scope config
+- #6342 Updated copyright year in version to use build date
+- #6771 Added Ubuntu 16 to CI/CD
+- #6804 Synergy loses edition when creating a System scope config
+- #6660 + #6582 Add missing XAtom for utf-8 handling with Xorg
+- #6814 The system asks to save twice. 
+- #6817 Configure requires dns_sd.h for enterprise version
+- #6826 + #6829 SonarCloud Critical bugs
+- #6821 Blocker bugs found by sonar in synergy and in tests
+- #6825 The system requires google test even when tests are disabled with BUILD_TESTS=OFF
+- #6832 TLS certificate error on macOS system
+- #6835 Create TLS certificate during upgrade
+
+Enhancements:
+- #6750 Integrate SonarCloud for static analysis and test coverage
+- #6792 License key expiry
+- #6799 Synergy "Business" edition
+- #6803 Update Synergy icons
+- #6800 Update behaviour when unregistered
+- #6806 Move to Github Action for general PR builds and tests
+- #6816 Improve license key validation
+
+v1.12.0-stable
 ===========
 
 Bug fixes:
+- #6748 Copyright year in about dialog isn't updated
+
+v1.12.0-rc2
+===========
+
+Bug fixes:
+- #6730 Updating synergy looses settings
+- #6734 Fixed naming of installers for linux and windows
+- #6743 Azure build git revision showing as 0badc0de
+
+Enhancements:
+- #6739 Add submodules cloning to cmake
+- #6736 Command line option for custom TLS Certificate
+
+v1.12.0-rc1
+===========
+
+Bug fixes:
+- #6487 Mouse freezes or key repeats on Linux client
 - #6663 Limit GUI log Window to prevent it using up too much RAM over time
 - #6587 Auto config setting doesn't do anything
 - #6620 Unit tests are no longer built
+- #6670 Build computers failing with language file error
+- #6661 Removed deprecated namespace in gtest/gmock by updating
+- #6601 Update man page with missing crypto option
+- #4036 Client cursor constrained to old resolution
+- #6716 Denial of Service vulnerability on servers with 4GB of ram or less
 
 Enhancements:
-- #6666 Add doxygen documentation output from piplines
+- #6666 Add doxygen documentation output from pipelines
+- #6674 Debian 10 X11 build for CI
+- #6714 Added windows core binaries upload to sandor
+- #6715 Updated language file from Crowdin
+- #6688 Fully migrate CI from Jenkins to Azure Pipelines
+- #6718 GitHub Action to test PR's for if ChangeLog was updated
+- #6722 Allow servers to be announced by screen name instead of IP
+- #6720 Add macqtdeploy to cmake
+- #6725 Disable the building of tests with CMake option
 
 Features:
 - #6538 System-wide config for all system users

@@ -20,6 +20,8 @@
 #include <string>
 #include <ctime>
 #include "EditionType.h"
+#include "SerialKeyType.h"
+#include "SerialKeyEdition.h"
 
 #ifdef TEST_ENV
 #include <gtest/gtest_prod.h>
@@ -34,17 +36,18 @@ public:
     bool                isExpiring(time_t currentTime) const;
     bool                isExpired(time_t currentTime) const;
     bool                isTrial() const;
-    time_t                daysLeft(time_t currentTime) const;
-    std::string            email() const;
-    Edition                edition() const;
-    std::string            toString() const;
+    bool                isTemporary() const;
+    bool                isValid() const;
+    time_t              daysLeft(time_t currentTime) const;
+    int                 getSpanLeft(time_t time = ::time(0)) const;
+    std::string         email() const;
+    Edition             edition() const;
+    std::string         toString() const;
 
     static std::string  decode(const std::string& serial);
-    static Edition      parseEdition(const std::string& editionStr);
 
 private:
     bool                parse(std::string plainSerial);
-    std::string            editionString() const;
 
 #ifdef TEST_ENV
 private:
@@ -55,14 +58,14 @@ private:
 #endif
 
 private:
-    std::string            m_name;
-    std::string            m_email;
-    std::string            m_company;
-    unsigned            m_userLimit;
+    std::string           m_name;
+    std::string           m_email;
+    std::string           m_company;
+    unsigned              m_userLimit;
     unsigned long long    m_warnTime;
     unsigned long long    m_expireTime;
-    Edition                m_edition;
-    bool                m_trial;
+    SerialKeyEdition      m_edition;
+    SerialKeyType         m_KeyType;
 };
 
 
@@ -75,7 +78,7 @@ operator== (SerialKey const& lhs, SerialKey const& rhs) {
             (lhs.m_warnTime == rhs.m_warnTime) &&
             (lhs.m_expireTime == rhs.m_expireTime) &&
             (lhs.m_edition == rhs.m_edition) &&
-            (lhs.m_trial == rhs.m_trial);
+            (lhs.m_KeyType == rhs.m_KeyType);
 }
 
 inline bool

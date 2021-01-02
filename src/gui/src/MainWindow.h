@@ -46,7 +46,6 @@ class QComboBox;
 class QTabWidget;
 class QCheckBox;
 class QRadioButton;
-class QTemporaryFile;
 class QMessageBox;
 class QAbstractButton;
 
@@ -120,7 +119,6 @@ class MainWindow : public QMainWindow, public Ui::MainWindowBase
         void showConfigureServer() { showConfigureServer(""); }
         void autoAddScreen(const QString name);
         void addZeroconfServer(const QString name);
-        void updateLocalFingerprint();
         Zeroconf& zeroconf() { return *m_pZeroconf; }
 #ifndef SYNERGY_ENTERPRISE
         LicenseManager& licenseManager() const;
@@ -132,8 +130,8 @@ class MainWindow : public QMainWindow, public Ui::MainWindowBase
 public slots:
         void setEdition(Edition edition);
 #ifndef SYNERGY_ENTERPRISE
-        void beginTrial(bool isExpiring);
-        void endTrial(bool isExpired);
+		void InvalidLicense();
+        void showLicenseNotice(const QString& message);
 #endif
         void appendLogRaw(const QString& text);
         void appendLogInfo(const QString& text);
@@ -143,7 +141,7 @@ public slots:
         void retryStart(); // If the connection failed this will retry a startSynergy
 
     protected slots:
-        void sslToggled(bool enabled);
+        void updateLocalFingerprint();
         void on_m_pGroupClient_toggled(bool on);
         void on_m_pGroupServer_toggled(bool on);
         bool on_m_pButtonBrowseConfigFile_clicked();
@@ -188,7 +186,6 @@ public slots:
         void stopDesktop();
         void changeEvent(QEvent* event);
         void retranslateMenuBar();
-        void closeEvent(QCloseEvent *event) override;
 
 #if defined(Q_OS_WIN)
         bool isServiceRunning(QString name);
@@ -224,7 +221,6 @@ public slots:
         QProcess*           m_pSynergy;
         int                 m_SynergyState;
         ServerConfig        m_ServerConfig;
-        QTemporaryFile*     m_pTempConfigFile;
         QSystemTrayIcon*    m_pTrayIcon;
         QMenu*              m_pTrayIconMenu;
         bool                m_AlreadyHidden;

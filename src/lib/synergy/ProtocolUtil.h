@@ -50,7 +50,7 @@ public:
     - \%s   -- converts String* to stream of bytes
     - \%S   -- converts integer N and const UInt8* to stream of N bytes
     */
-    static void            writef(synergy::IStream*,
+    static void           writef(synergy::IStream*,
                             const char* fmt, ...);
 
     //! Read formatted data
@@ -69,19 +69,38 @@ public:
     - \%4I  -- reads NBO 4 byte integers;  arg is std::vector<UInt32>*
     - \%s   -- reads bytes;  argument must be a String*, \b not a char*
     */
-    static bool            readf(synergy::IStream*,
+    static bool           readf(synergy::IStream*,
                             const char* fmt, ...);
 
 private:
-    static void            vwritef(synergy::IStream*,
+    static void           vwritef(synergy::IStream*,
                             const char* fmt, UInt32 size, va_list);
-    static void            vreadf(synergy::IStream*,
+    static void           vreadf(synergy::IStream*,
                             const char* fmt, va_list);
 
-    static UInt32        getLength(const char* fmt, va_list);
-    static void            writef(void*, const char* fmt, va_list);
-    static UInt32        eatLength(const char** fmt);
-    static void            read(synergy::IStream*, void*, UInt32);
+    static UInt32         getLength(const char* fmt, va_list);
+    static void           writef(std::vector<UInt8>&, const char* fmt, va_list);
+    static UInt32         eatLength(const char** fmt);
+    static void           read(synergy::IStream*, void*, UInt32);
+
+    /**
+     * @brief Handles 1,2, or 4 byte Integers
+     */
+    static UInt8          read1ByteInt(synergy::IStream * stream);
+    static UInt16         read2BytesInt(synergy::IStream * stream);
+    static UInt32         read4BytesInt(synergy::IStream * stream);
+
+    /**
+     * @brief Handles a Vector of integers
+     */
+    static void           readVector1ByteInt(synergy::IStream*, std::vector<UInt8>&);
+    static void           readVector2BytesInt(synergy::IStream*, std::vector<UInt16>&);
+    static void           readVector4BytesInt(synergy::IStream*, std::vector<UInt32>&);
+
+    /**
+     * @brief Handles an array of bytes
+     */
+    static void           readBytes(synergy::IStream*, UInt32, String*);
 };
 
 //! Mismatched read exception

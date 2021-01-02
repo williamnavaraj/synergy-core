@@ -65,9 +65,13 @@ void SettingsDialog::accept()
     appConfig().setAutoHide(m_pCheckBoxAutoHide->isChecked());
     appConfig().setAutoConfig(m_pCheckBoxAutoConfig->isChecked());
     appConfig().setMinimizeToTray(m_pCheckBoxMinimizeToTray->isChecked());
+    appConfig().setTLSCertPath(m_pLineEditCertificatePath->text());
+    appConfig().setTLSKeyLength(m_pComboBoxKeyLength->currentText());
 
     //We only need to test the System scoped Radio as they are connected
     appConfig().setLoadFromSystemScope(m_pRadioSystemScope->isChecked());
+    m_appConfig.setCryptoEnabled(m_pCheckBoxEnableCrypto->isChecked());
+
     QDialog::accept();
 }
 
@@ -115,7 +119,16 @@ void SettingsDialog::loadFromConfig() {
     setIndexFromItemData(m_pComboLanguage, appConfig().language());
     m_pCheckBoxAutoHide->setChecked(appConfig().getAutoHide());
     m_pCheckBoxMinimizeToTray->setChecked(appConfig().getMinimizeToTray());
+    m_pLineEditCertificatePath->setText(appConfig().getTLSCertPath());
     m_pCheckBoxEnableCrypto->setChecked(m_appConfig.getCryptoEnabled());
+
+    //If the tls file exists test its key length
+    if (QFile(appConfig().getTLSCertPath()).exists()) {
+        updateKeyLengthOnFile(appConfig().getTLSCertPath());
+    } else {
+        m_pComboBoxKeyLength->setCurrentIndex(m_pComboBoxKeyLength->findText(appConfig().getTLSKeyLength()));
+    }
+
 
     if (m_appConfig.isSystemScoped()) {
         m_pRadioSystemScope->setChecked(true);
@@ -142,6 +155,7 @@ void SettingsDialog::loadFromConfig() {
 #endif
 
     m_pCheckBoxEnableCrypto->setChecked(m_appConfig.getCryptoEnabled());
+    m_pGroupBoxTLS->setVisible(m_appConfig.getCryptoEnabled());
 
 #ifdef SYNERGY_ENTERPRISE
 
@@ -153,13 +167,13 @@ void SettingsDialog::loadFromConfig() {
 
 #else
 
-    bool isPro = m_appConfig.edition() == kPro;
-    m_pCheckBoxEnableCrypto->setEnabled(isPro);
-    m_pLabelProUpgrade->setVisible(!isPro);
+    m_pCheckBoxEnableCrypto->setEnabled(m_appConfig.isCryptoAvailable());
+    m_pLabelProUpgrade->setVisible(!m_appConfig.isCryptoAvailable());
 
     m_pCheckBoxAutoConfig->setChecked(appConfig().autoConfig());
 
 #endif
+    adjustSize();
 }
 
 
@@ -201,10 +215,11 @@ void SettingsDialog::on_m_pCheckBoxEnableCrypto_toggled(bool checked)
 {
     m_appConfig.setCryptoEnabled(checked);
     if (checked) {
-        SslCertificate sslCertificate;
-        sslCertificate.generateCertificate();
-        m_pMainWindow->updateLocalFingerprint();
+        verticalSpacer_4->changeSize(10, 10, QSizePolicy::Minimum);
+    } else {
+        verticalSpacer_4->changeSize(10, 0, QSizePolicy::Ignored);
     }
+    adjustSize();
 }
 
 void SettingsDialog::on_m_pLabelInstallBonjour_linkActivated(const QString&)
@@ -218,4 +233,49 @@ void SettingsDialog::on_m_pRadioSystemScope_toggled(bool checked)
 {
     appConfig().setLoadFromSystemScope(checked);
     loadFromConfig();
+}
+
+void SettingsDialog::on_m_pPushButtonBrowseCert_clicked() {
+    QString fileName = QFileDialog::getSaveFileName(
+            this, tr("Select a TLS certificate to use..."),
+            m_pLineEditCertificatePath->text(),
+            "Cert (*.pem)",
+            nullptr,
+            QFileDialog::DontConfirmOverwrite);
+
+    if (!fileName.isEmpty()) {
+        m_pLineEditCertificatePath->setText(fileName);
+        //If the tls file exists test its key length and update
+        if (QFile(appConfig().getTLSCertPath()).exists()) {
+            updateKeyLengthOnFile(fileName);
+        }
+    }
+    updateRegenButton();
+}
+
+void SettingsDialog::on_m_pComboBoxKeyLength_currentIndexChanged(int index) {
+    updateRegenButton();
+}
+
+void SettingsDialog::updateRegenButton() {
+    // Disable the Regenerate cert button if the key length is different to saved
+    auto keyChanged = appConfig().getTLSKeyLength() != m_pComboBoxKeyLength->currentText();
+    auto pathChanged = appConfig().getTLSCertPath() != m_pLineEditCertificatePath->text();
+    auto cryptoChanged = appConfig().getCryptoEnabled() != m_pCheckBoxEnableCrypto->isChecked();
+    //NOR the above bools, if any have changed regen should be disabled as it will be done on save
+    auto nor = !(keyChanged || pathChanged || cryptoChanged);
+    m_pPushButtonRegenCert->setEnabled(nor);
+}
+
+void SettingsDialog::on_m_pPushButtonRegenCert_clicked() {
+    appConfig().generateCertificate(true);
+}
+
+void SettingsDialog::updateKeyLengthOnFile(const QString &path) {
+    SslCertificate ssl;
+    auto length = ssl.getCertKeyLength(path);
+    auto index = m_pComboBoxKeyLength->findText(length);
+    m_pComboBoxKeyLength->setCurrentIndex(index);
+    //Also update what is in the appconfig to match the file itself
+    appConfig().setTLSKeyLength(length);
 }

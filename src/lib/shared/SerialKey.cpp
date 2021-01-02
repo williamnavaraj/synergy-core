@@ -25,15 +25,16 @@
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
+#include "SerialKeyEdition.h"
 
 using namespace std;
+static std::string hexEncode (std::string const& str);
 
 SerialKey::SerialKey(Edition edition):
     m_userLimit(1),
     m_warnTime(ULLONG_MAX),
     m_expireTime(ULLONG_MAX),
-    m_edition(edition),
-    m_trial(false)
+    m_edition(edition)
 {
 }
 
@@ -41,8 +42,7 @@ SerialKey::SerialKey(std::string serial) :
     m_userLimit(1),
     m_warnTime(0),
     m_expireTime(0),
-    m_edition(kBasic),
-    m_trial(true)
+    m_edition(kBasic)
 {
     string plainText = decode(serial);
     bool valid = false;
@@ -59,8 +59,8 @@ SerialKey::isExpiring(time_t currentTime) const
 {
     bool result = false;
 
-    if (m_trial) {
-		unsigned long long currentTimeAsLL = static_cast<unsigned long long>(currentTime);
+    if (isTemporary()) {
+        unsigned long long currentTimeAsLL = static_cast<unsigned long long>(currentTime);
         if ((m_warnTime <= currentTimeAsLL) && (currentTimeAsLL < m_expireTime)) {
             result = true;
         }
@@ -74,8 +74,8 @@ SerialKey::isExpired(time_t currentTime) const
 {
     bool result = false;
 
-    if (m_trial) {
-		unsigned long long currentTimeAsLL = static_cast<unsigned long long>(currentTime);
+    if (isTemporary()) {
+        unsigned long long currentTimeAsLL = static_cast<unsigned long long>(currentTime);
         if (m_expireTime <= currentTimeAsLL) {
             result = true;
         }
@@ -87,29 +87,32 @@ SerialKey::isExpired(time_t currentTime) const
 bool
 SerialKey::isTrial() const
 {
-    return m_trial;
+    return m_KeyType.isTrial();
+}
+
+bool
+SerialKey::isTemporary() const
+{
+    return m_KeyType.isTemporary();
+}
+
+bool
+SerialKey::isValid() const
+{
+    bool Valid = true;
+
+    if (m_edition.getType() == kUnregistered || isExpired(::time(0)))
+    {
+        Valid = false;
+    }
+
+    return Valid;
 }
 
 Edition
 SerialKey::edition() const
 {
-    return m_edition;
-}
-
-std::string
-SerialKey::editionString() const
-{
-    switch (edition()) {
-        case kBasic:
-            return "basic";
-        case kPro:
-            return "pro";
-        default: {
-            std::ostringstream oss;
-            oss << static_cast<int>(edition());
-            return oss.str();
-        }
-    }
+    return m_edition.getType();
 }
 
 static std::string
@@ -130,18 +133,23 @@ SerialKey::toString() const
 {
     std::ostringstream oss;
     oss << "{";
-    if (isTrial()) {
-        oss << "v2;trial;";
+    if (isTemporary()) {
+        if (isTrial()){
+            oss << "v2;" << SerialKeyType::TRIAL << ";";
+        }
+        else{
+            oss << "v2;" << SerialKeyType::SUBSCRIPTION << ";";
+        }
     } else {
         oss << "v1;";
     }
-    oss << editionString() << ";";
+    oss << m_edition.getName() << ";";
     oss << m_name << ";";
     oss << m_userLimit << ";";
     oss << m_email << ";";
     oss << m_company << ";";
-    oss << (isTrial() ? m_warnTime : 0) << ";";
-    oss << (isTrial() ? m_expireTime : 0);
+    oss << (isTemporary() ? m_warnTime : 0) << ";";
+    oss << (isTemporary() ? m_expireTime : 0);
     oss << "}";
     return hexEncode(oss.str());
 }
@@ -152,7 +160,7 @@ SerialKey::daysLeft(time_t currentTime) const
     unsigned long long timeLeft =  0;
     unsigned long long const day = 60 * 60 * 24;
 
-	unsigned long long currentTimeAsLL = static_cast<unsigned long long>(currentTime);
+    unsigned long long currentTimeAsLL = static_cast<unsigned long long>(currentTime);
     if (currentTimeAsLL < m_expireTime) {
         timeLeft = m_expireTime - currentTimeAsLL;
     }
@@ -161,6 +169,25 @@ SerialKey::daysLeft(time_t currentTime) const
     daysLeft = timeLeft % day != 0 ? 1 : 0;
 
     return timeLeft / day + daysLeft;
+}
+
+int
+SerialKey::getSpanLeft(time_t time) const
+{
+    int result{-1};
+
+    if (isTemporary() && !isExpired(time)){
+        auto timeLeft = (m_expireTime - time) * 1000;
+
+        if (timeLeft < INT_MAX){
+            result = static_cast<int>(timeLeft);
+        }
+        else{
+            result = INT_MAX;
+        }
+    }
+
+    return result;
 }
 
 std::string
@@ -226,11 +253,10 @@ SerialKey::parse(std::string plainSerial)
         }
 
         if ((parts.size() == 8)
-            && (parts.at(0).find("v1") != string::npos)) {
+                && (parts.at(0).find("v1") != string::npos)) {
             // e.g.: {v1;basic;Bob;1;email;company name;1398297600;1398384000}
-            m_edition = parseEdition(parts.at(1));
+            m_edition.setType(parts.at(1));
             m_name = parts.at(2);
-            m_trial = false;
             sscanf(parts.at(3).c_str(), "%d", &m_userLimit);
             m_email = parts.at(4);
             m_company = parts.at(5);
@@ -241,8 +267,8 @@ SerialKey::parse(std::string plainSerial)
         else if ((parts.size() == 9)
                  && (parts.at(0).find("v2") != string::npos)) {
             // e.g.: {v2;trial;basic;Bob;1;email;company name;1398297600;1398384000}
-            m_trial = parts.at(1) == "trial" ? true : false;
-            m_edition = parseEdition(parts.at(2));
+            m_KeyType.setKeyType(parts.at(1));
+            m_edition.setType(parts.at(2));
             m_name = parts.at(3);
             sscanf(parts.at(4).c_str(), "%d", &m_userLimit);
             m_email = parts.at(5);
@@ -254,15 +280,4 @@ SerialKey::parse(std::string plainSerial)
     }
 
     return valid;
-}
-
-Edition
-SerialKey::parseEdition(std::string const& editionStr)
-{
-    Edition e = kBasic;
-    if (editionStr == "pro") {
-        e = kPro;
-    }
-
-    return e;
 }

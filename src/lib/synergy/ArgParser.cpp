@@ -29,8 +29,8 @@
 #ifdef WINAPI_MSWINDOWS
 #include <VersionHelpers.h>
 #endif
- 
-ArgsBase* ArgParser::m_argsBase = NULL;
+
+lib::synergy::ArgsBase* ArgParser::m_argsBase = NULL;
 
 ArgParser::ArgParser(App* app) :
     m_app(app)
@@ -38,7 +38,7 @@ ArgParser::ArgParser(App* app) :
 }
 
 bool
-ArgParser::parseServerArgs(ServerArgs& args, int argc, const char* const* argv)
+ArgParser::parseServerArgs(lib::synergy::ServerArgs& args, int argc, const char* const* argv)
 {
     setArgsBase(args);
     updateCommonArgs(argv);
@@ -78,7 +78,7 @@ ArgParser::parseServerArgs(ServerArgs& args, int argc, const char* const* argv)
 }
 
 bool
-ArgParser::parseClientArgs(ClientArgs& args, int argc, const char* const* argv)
+ArgParser::parseClientArgs(lib::synergy::ClientArgs& args, int argc, const char* const* argv)
 {
     setArgsBase(args);
     updateCommonArgs(argv);
@@ -130,7 +130,7 @@ ArgParser::parseClientArgs(ClientArgs& args, int argc, const char* const* argv)
 }
 
 bool
-ArgParser::parsePlatformArg(ArgsBase& argsBase, const int& argc, const char* const* argv, int& i)
+ArgParser::parsePlatformArg(lib::synergy::ArgsBase& argsBase, const int& argc, const char* const* argv, int& i)
 {
 #if WINAPI_MSWINDOWS
     if (isArg(i, argc, argv, NULL, "--service")) {
@@ -174,28 +174,24 @@ ArgParser::parsePlatformArg(ArgsBase& argsBase, const int& argc, const char* con
 bool
 ArgParser::parseToolArgs(ToolArgs& args, int argc, const char* const* argv)
 {
-    for (int i = 1; i < argc; ++i) {
-        if (isArg(i, argc, argv, NULL, "--get-active-desktop", 0)) {
-            args.m_printActiveDesktopName = true;
-            return true;
-        }
-        else if (isArg(i, argc, argv, NULL, "--get-installed-dir", 0)) {
-            args.m_getInstalledDir = true;
-            return true;
-        }
-        else if (isArg(i, argc, argv, NULL, "--get-profile-dir", 0)) {
-            args.m_getProfileDir = true;
-            return true;
-        }
-        else if (isArg(i, argc, argv, NULL, "--get-arch", 0)) {
-            args.m_getArch = true;
-            return true;
-        }
-        else {
-            return false;
-        }
+    // We support exactly one argument at a fix position
+    static const int only_index {1};
+    if (isArg(only_index, argc, argv, NULL, "--get-active-desktop", 0)) {
+        args.m_printActiveDesktopName = true;
+        return true;
     }
-
+    else if (isArg(only_index, argc, argv, NULL, "--get-installed-dir", 0)) {
+        args.m_getInstalledDir = true;
+        return true;
+    }
+    else if (isArg(only_index, argc, argv, NULL, "--get-profile-dir", 0)) {
+        args.m_getProfileDir = true;
+        return true;
+    }
+    else if (isArg(only_index, argc, argv, NULL, "--get-arch", 0)) {
+        args.m_getArch = true;
+        return true;
+    }
     return false;
 }
 
@@ -289,6 +285,9 @@ ArgParser::parseGenericArgs(int argc, const char* const* argv, int& i)
     }
     else if (isArg(i, argc, argv, NULL, "--plugin-dir", 1)) {
         argsBase().m_pluginDirectory = argv[++i];
+    }
+    else if (isArg(i, argc, argv, NULL, "--tls-cert", 1)) {
+        argsBase().m_tlsCertFile = argv[++i];
     }
     else {
         // option not supported here

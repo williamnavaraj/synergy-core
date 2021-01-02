@@ -112,7 +112,6 @@ MainWindow::MainWindow (AppConfig& appConfig,
     m_pSynergy(NULL),
     m_SynergyState(synergyDisconnected),
     m_ServerConfig(5, 3, m_AppConfig->screenName(), this),
-    m_pTempConfigFile(NULL),
     m_pTrayIcon(NULL),
     m_pTrayIconMenu(NULL),
     m_AlreadyHidden(false),
@@ -163,7 +162,7 @@ MainWindow::MainWindow (AppConfig& appConfig,
     // hide padlock icon
     secureSocket(false);
 
-    sslToggled(appConfig.getCryptoEnabled());
+    updateLocalFingerprint();
 
     connect (this, SIGNAL(windowShown()),
              this, SLOT(on_windowShown()), Qt::QueuedConnection);
@@ -171,15 +170,15 @@ MainWindow::MainWindow (AppConfig& appConfig,
     connect (m_LicenseManager, SIGNAL(editionChanged(Edition)),
              this, SLOT(setEdition(Edition)), Qt::QueuedConnection);
 
-    connect (m_LicenseManager, SIGNAL(beginTrial(bool)),
-             this, SLOT(beginTrial(bool)), Qt::QueuedConnection);
+    connect (m_LicenseManager, SIGNAL(showLicenseNotice(QString)),
+             this, SLOT(showLicenseNotice(QString)), Qt::QueuedConnection);
 
-    connect (m_LicenseManager, SIGNAL(endTrial(bool)),
-             this, SLOT(endTrial(bool)), Qt::QueuedConnection);
+    connect (m_LicenseManager, SIGNAL(InvalidLicense()),
+             this, SLOT(InvalidLicense()), Qt::QueuedConnection);
 #endif
 
-    connect (m_AppConfig, SIGNAL(sslToggled(bool)),
-             this, SLOT(sslToggled(bool)), Qt::QueuedConnection);
+    connect (m_AppConfig, SIGNAL(sslToggled()),
+             this, SLOT(updateLocalFingerprint()), Qt::QueuedConnection);
 
     connect (m_AppConfig, SIGNAL(zeroConfToggled()),
              this, SLOT(zeroConfToggled()), Qt::QueuedConnection);
@@ -223,8 +222,6 @@ MainWindow::~MainWindow()
 #ifndef SYNERGY_ENTERPRISE
     delete m_pZeroconf;
 #endif
-
-    saveSettings();
 
     delete m_pSslCertificate;
 }
@@ -569,8 +566,8 @@ void MainWindow::checkSecureSocket(const QString& line)
     // obviously not very secure, since this can be tricked by injecting something
     // into the log. however, since we don't have IPC between core and GUI... patches welcome.
     const int index = line.indexOf(tlsCheckString, 0, Qt::CaseInsensitive);
-	  if (index > 0) {
-		    secureSocket(true);
+    if (index > 0) {
+        secureSocket(true);
 
         //Get the protocol version from the line
         m_SecureSocketVersion = line.mid(index + strlen(tlsCheckString));
@@ -613,8 +610,7 @@ void MainWindow::startSynergy()
 {
 #ifndef SYNERGY_ENTERPRISE
     SerialKey serialKey = m_LicenseManager->serialKey();
-    time_t currentTime = ::time(0);
-    if (serialKey.isExpired(currentTime)) {
+    if (!serialKey.isValid()) {
         if (QDialog::Rejected == raiseActivationDialog()) {
             return;
         }
@@ -668,16 +664,22 @@ void MainWindow::startSynergy()
 
 #endif
 
+#if defined(Q_OS_WIN)
     if (m_AppConfig->getCryptoEnabled()) {
         args << "--enable-crypto";
+        args << "--tls-cert" <<  QString("\"%1\"").arg(m_AppConfig->getTLSCertPath());
     }
-
-#if defined(Q_OS_WIN)
     // on windows, the profile directory changes depending on the user that
     // launched the process (e.g. when launched with elevation). setting the
     // profile dir on launch ensures it uses the same profile dir is used
     // no matter how its relaunched.
     args << "--profile-dir" << getProfileRootForArg();
+
+#else
+    if (m_AppConfig->getCryptoEnabled()) {
+        args << "--enable-crypto";
+        args << "--tls-cert" << m_AppConfig->getTLSCertPath();
+    }
 #endif
 
     if ((synergyType() == synergyClient && !clientArgs(args, app))
@@ -739,16 +741,6 @@ void MainWindow::retryStart()
     {
         startSynergy();
     }
-}
-
-void
-MainWindow::sslToggled (bool enabled)
-{
-    if (enabled) {
-        m_pSslCertificate = new SslCertificate(this);
-        m_pSslCertificate->generateCertificate();
-    }
-    updateLocalFingerprint();
 }
 
 bool MainWindow::clientArgs(QStringList& args, QString& app)
@@ -825,17 +817,19 @@ QString MainWindow::configFilename()
     {
         // TODO: no need to use a temporary file, since we need it to
         // be permenant (since it'll be used for Windows services, etc).
-        m_pTempConfigFile = new QTemporaryFile();
-        if (!m_pTempConfigFile->open())
+        QTemporaryFile tempConfigFile;
+        tempConfigFile.setAutoRemove(false);
+
+        if (!tempConfigFile.open())
         {
             QMessageBox::critical(this, tr("Cannot write configuration file"), tr("The temporary configuration file required to start synergy can not be written."));
             return "";
         }
 
-        serverConfig().save(*m_pTempConfigFile);
-        filename = m_pTempConfigFile->fileName();
+        serverConfig().save(tempConfigFile);
+        filename = tempConfigFile.fileName();
 
-        m_pTempConfigFile->close();
+        tempConfigFile.close();
     }
     else
     {
@@ -919,13 +913,6 @@ void MainWindow::stopSynergy()
     }
 
     setSynergyState(synergyDisconnected);
-
-    // HACK: deleting the object deletes the physical file, which is
-    // bad, since it could be in use by the Windows service!
-#if !defined(Q_OS_WIN)
-    delete m_pTempConfigFile;
-#endif
-    m_pTempConfigFile = NULL;
 
     // reset so that new connects cause auto-hide.
     m_AlreadyHidden = false;
@@ -1155,54 +1142,21 @@ void MainWindow::setEdition(Edition edition)
 }
 
 #ifndef SYNERGY_ENTERPRISE
-void MainWindow::beginTrial(bool isExpiring)
+void MainWindow::InvalidLicense()
 {
-    //Hack
-    //if (isExpiring) {
-    time_t daysLeft = m_LicenseManager->serialKey().daysLeft(::time(0));
-        QString expiringNotice ("<html><head/><body><p><span style=\""
-                     "font-weight:600;\">%1</span> day%3 of "
-                     "your %2 trial remain%5. <a href="
-                     "\"https://symless.com/synergy/trial/thanks?id=%4\">"
-                     "<span style=\"text-decoration: underline;"
-                     " color:#0000ff;\">Buy now!</span></a>"
-                     "</p></body></html>");
-        expiringNotice = expiringNotice
-            .arg (daysLeft)
-            .arg (LicenseManager::getEditionName
-                    (m_LicenseManager->activeEdition()))
-            .arg ((daysLeft == 1) ? "" : "s")
-            .arg (QString::fromStdString
-                    (m_LicenseManager->serialKey().toString()))
-            .arg ((daysLeft == 1) ? "s" : "");
-        this->m_trialLabel->setText(expiringNotice);
-        this->m_trialWidget->show();
-    //}
-    setWindowTitle (m_LicenseManager->activeEditionName());
+   stopSynergy();
+   m_AppConfig->activationHasRun(false);
 }
 
-void MainWindow::endTrial(bool isExpired)
+void MainWindow::showLicenseNotice(const QString& notice)
 {
-    if (isExpired) {
-        QString expiredNotice (
-            "<html><head/><body><p>Your %1 trial has expired. <a href="
-            "\"https://symless.com/synergy/trial/thanks?id=%2\">"
-            "<span style=\"text-decoration: underline;color:#0000ff;\">"
-            "Buy now!</span></a></p></body></html>"
-        );
-        expiredNotice = expiredNotice
-            .arg(LicenseManager::getEditionName
-                    (m_LicenseManager->activeEdition()))
-            .arg(QString::fromStdString
-                    (m_LicenseManager->serialKey().toString()));
+    this->m_trialWidget->hide();
 
-        this->m_trialLabel->setText(expiredNotice);
+    if (!notice.isEmpty()) {
+        this->m_trialLabel->setText(notice);
         this->m_trialWidget->show();
-        stopSynergy();
-        m_AppConfig->activationHasRun(false);
-    } else {
-        this->m_trialWidget->hide();
     }
+
     setWindowTitle (m_LicenseManager->activeEditionName());
 }
 #endif
@@ -1415,12 +1369,10 @@ int MainWindow::raiseActivationDialog()
 void MainWindow::on_windowShown()
 {
 #ifndef SYNERGY_ENTERPRISE
-    time_t currentTime = ::time(0);
-    if (!m_AppConfig->activationHasRun()
-            && ((m_AppConfig->edition() == kUnregistered) ||
-                (m_LicenseManager->serialKey().isExpired(currentTime)))) {
-        raiseActivationDialog();
-    }
+	if (!m_AppConfig->activationHasRun() &&
+		!m_LicenseManager->serialKey().isValid()){
+			raiseActivationDialog();
+	}
 #endif
 }
 
@@ -1464,10 +1416,4 @@ void MainWindow::windowStateChanged()
 {
     if (windowState() == Qt::WindowMinimized && appConfig().getMinimizeToTray())
         hide();
-}
-
-void MainWindow::closeEvent(QCloseEvent *event) {
-    //If the main window is closing, trigger a save
-    GUI::Config::ConfigWriter::make()->globalSave();
-    event->accept();
 }

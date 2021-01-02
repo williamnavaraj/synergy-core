@@ -26,6 +26,7 @@
 #include <QPushButton>
 
 #include "ConfigWriter.h"
+#include "SslCertificate.h"
 
 #if defined(Q_OS_WIN)
 const char AppConfig::m_SynergysName[] = "synergys.exe";
@@ -73,6 +74,8 @@ const char* AppConfig::m_SynergySettingsName[] = {
         "useInternalConfig",
         "groupClientChecked",
         "serverHostname",
+        "tlsCertPath",
+        "tlsKeyLength",
 };
 
 static const char* logLevelNames[] =
@@ -232,11 +235,9 @@ void AppConfig::loadSettings()
         m_ElevateMode        = static_cast<ElevateMode>(elevateMode.toInt());
     }
 
-    m_Edition                   = static_cast<Edition>(loadSetting(kEditionSetting, kUnregistered).toInt());
     m_ActivateEmail             = loadSetting(kActivateEmail, "").toString();
     m_CryptoEnabled             = loadSetting(kCryptoEnabled, true).toBool();
     m_AutoHide                  = loadSetting(kAutoHide, false).toBool();
-    m_Serialkey                 = loadSetting(kSerialKey, "").toString().trimmed();
     m_lastVersion               = loadSetting(kLastVersion, "Unknown").toString();
     m_LastExpiringWarningTime   = loadSetting(kLastExpireWarningTime, 0).toInt();
     m_ActivationHasRun          = loadSetting(kActivationHasRun, false).toBool();
@@ -249,6 +250,28 @@ void AppConfig::loadSettings()
     m_ClientGroupChecked        = loadSetting(kGroupClientCheck, true).toBool();
     m_ServerHostname            = loadSetting(kServerHostname).toString();
 
+    //only change the serial key if the settings being loaded contains a key
+    bool updateSerial = GUI::Config::ConfigWriter::make()
+            ->hasSetting(settingName(kLoadSystemSettings),GUI::Config::ConfigWriter::kCurrent);
+    //if the setting exists and is not empty
+    updateSerial = updateSerial && !loadSetting(kSerialKey, "").toString().trimmed().isEmpty();
+
+    if (updateSerial) {
+        m_Serialkey                 = loadSetting(kSerialKey, "").toString().trimmed();
+        m_Edition                   = static_cast<Edition>(loadSetting(kEditionSetting, kUnregistered).toInt());
+    }
+
+    //Set the default path of the TLS certificate file in the users DIR
+    QString certificateFilename = QString("%1/%2/%3").arg(m_CoreInterface.getProfileDir(),
+                                                          "SSL",
+                                                          "Synergy.pem");
+
+    m_TLSCertificatePath        = loadSetting(kTLSCertPath, certificateFilename).toString();
+    m_TLSKeyLength              = loadSetting(kTLSKeyLength, "2048").toString();
+
+    if (getCryptoEnabled()) {
+        generateCertificate();
+    }
 
 }
 
@@ -396,20 +419,28 @@ ElevateMode AppConfig::elevateMode()
 }
 
 void AppConfig::setCryptoEnabled(bool newValue) {
+    if (m_CryptoEnabled != newValue && newValue){
+        generateCertificate();
+    }
     setSettingModified(m_CryptoEnabled, newValue);
-    emit sslToggled(m_CryptoEnabled);
+}
+
+bool AppConfig::isCryptoAvailable() const {
+    bool result {true};
+
+#ifndef SYNERGY_ENTERPRISE
+    result = (edition() == kPro || edition() == kBusiness);
+#endif
+
+    return result;
 }
 
 bool AppConfig::getCryptoEnabled() const {
-    return
-#ifndef SYNERGY_ENTERPRISE
-    (edition() == kPro) &&
-#endif
-    m_CryptoEnabled;
+    return isCryptoAvailable() && m_CryptoEnabled;
 }
 
 void AppConfig::setAutoHide(bool b) {
-    setSettingModified(m_MinimizeToTray, b);
+    setSettingModified(m_AutoHide, b);
 }
 
 bool AppConfig::getAutoHide() { return m_AutoHide; }
@@ -526,4 +557,30 @@ void AppConfig::setSettingModified(T &variable, const T& newValue) {
         m_unsavedChanges = true;
     }
 }
+
+void AppConfig::setTLSCertPath(const QString& path) {
+    m_TLSCertificatePath = path;
+}
+
+QString AppConfig::getTLSCertPath() const {
+    return m_TLSCertificatePath;
+}
+
+QString AppConfig::getTLSKeyLength() const {
+    return m_TLSKeyLength;
+}
+
+void AppConfig::setTLSKeyLength(const QString& length) {
+    if (m_TLSKeyLength != length) {
+        m_TLSKeyLength = length;
+        generateCertificate(true);
+    }
+}
+
+void AppConfig::generateCertificate(bool forceGeneration) const {
+    SslCertificate sslCertificate;
+    sslCertificate.generateCertificate(getTLSCertPath(), getTLSKeyLength(), forceGeneration);
+    emit sslToggled();
+}
+
 

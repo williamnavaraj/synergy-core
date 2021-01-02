@@ -20,6 +20,8 @@ project (synergy-core C CXX)
 option (SYNERGY_BUILD_LEGACY_GUI "Build the legacy GUI" ON)
 option (SYNERGY_BUILD_LEGACY_SERVICE "Build the legacy service (synergyd)" ON)
 option (SYNERGY_BUILD_LEGACY_INSTALLER "Build the legacy installer" ON)
+option (BUILD_TESTS "Override building of tests" ON)
+option (ENABLE_COVERAGE "Build with coverage")
 
 if (DEFINED ENV{SYNERGY_ENTERPRISE})
   option (SYNERGY_ENTERPRISE "Build Enterprise" ON)
@@ -32,6 +34,18 @@ set (CMAKE_CXX_EXTENSIONS OFF)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+
+if (ENABLE_COVERAGE)
+    # Add Code Coverage
+    include(cmake/CodeCoverage.cmake)
+    append_coverage_compiler_flags()
+    setup_target_for_coverage_gcovr_xml(
+            NAME coverage
+            EXECUTABLE unittests
+            BASE_DIRECTORY "${PROJECT_SOURCE_DIR}/src"
+            EXCLUDE "ext/*")
+
+endif()
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions (-DNDEBUG)
@@ -55,8 +69,10 @@ else()
     set (SYNERGY_ADD_HEADERS TRUE)
 endif()
 
+
+
 set (libs)
-include_directories (BEFORE SYSTEM ./ext/gtest/include)
+include_directories (BEFORE SYSTEM ${PROJECT_SOURCE_DIR}/ext/googletest/googletest/include)
 
 if (UNIX)
     if (NOT APPLE)
@@ -232,6 +248,14 @@ if (UNIX)
             list (APPEND libs Xi)
         endif()
 
+        if (NOT SYNERGY_ENTERPRISE AND SYNERGY_BUILD_LEGACY_GUI)
+            set (DnsSdlib "dns_sd.h")
+            set (CMAKE_EXTRA_INCLUDE_FILES "${CMAKE_EXTRA_INCLUDE_FILES};${DnsSdlib}")
+            check_include_files ("${DnsSdlib}" HAVE_DNS_SD)
+            if (NOT HAVE_DNS_SD)
+                message (FATAL_ERROR "Missing header: " ${DnsSdlib})
+            endif()
+        endif()
     endif()
 
     # For config.h, set some static values; it may be a good idea to make
@@ -299,11 +323,37 @@ elseif (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
         ${OPENSSL_ROOT}/lib/libssl.a
         ${OPENSSL_ROOT}/lib/libcrypto.a
     )
-elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux|.*BSD|DragonFly")
     set (OPENSSL_LIBS ssl crypto)
 else()
     message (FATAL_ERROR "Couldn't find OpenSSL")
 endif()
+
+#
+# Check submodules
+#
+find_package(Git QUIET)
+if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
+# Update submodules as needed
+  option(GIT_SUBMODULE "Check submodules during build" ON)
+  if(GIT_SUBMODULE)
+    message(STATUS "Submodule update")
+    execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      RESULT_VARIABLE GIT_SUBMOD_RESULT)
+    if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+      message(FATAL_ERROR "git submodule update --init failed with ${GIT_SUBMOD_RESULT}, please checkout submodules")
+    endif()
+  endif()
+endif()
+
+#
+# Google Test
+#
+if(BUILD_TESTS AND NOT EXISTS "${PROJECT_SOURCE_DIR}/ext/googletest/CMakeLists.txt")
+  message(FATAL_ERROR "The submodules were not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
+endif()
+
 
 #
 # Configure_file... but for directories, recursively.
@@ -336,17 +386,19 @@ macro (configure_files srcDir destDir)
 endmacro (configure_files)
 
 macro(generate_versionfile)
-	if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin" OR ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+	if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin" OR ${CMAKE_SYSTEM_NAME} MATCHES "Linux|.*BSD|DragonFly")
 		FILE(WRITE ${CMAKE_BINARY_DIR}/version
 		"export SYNERGY_VERSION_MAJOR=\"${SYNERGY_VERSION_MAJOR}\"\n"
 		"export SYNERGY_VERSION_MINOR=\"${SYNERGY_VERSION_MINOR}\"\n"
 		"export SYNERGY_VERSION_PATCH=\"${SYNERGY_VERSION_PATCH}\"\n"
+		"export SYNERGY_VERSION_BUILD=\"${SYNERGY_VERSION_BUILD}\"\n"
 		"export SYNERGY_VERSION_STAGE=\"${SYNERGY_VERSION_STAGE}\"\n")
 	elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 		FILE(WRITE ${CMAKE_BINARY_DIR}/version.bat
 		"SET SYNERGY_VERSION_MAJOR=${SYNERGY_VERSION_MAJOR}\n"
 		"SET SYNERGY_VERSION_MINOR=${SYNERGY_VERSION_MINOR}\n"
 		"SET SYNERGY_VERSION_PATCH=${SYNERGY_VERSION_PATCH}\n"
+		"SET SYNERGY_VERSION_BUILD=${SYNERGY_VERSION_BUILD}\n"
 		"SET SYNERGY_VERSION_STAGE=${SYNERGY_VERSION_STAGE}\n")
 	endif()
 endmacro(generate_versionfile)
@@ -362,7 +414,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     set (SYNERGY_BUNDLE_DIR ${CMAKE_BINARY_DIR}/bundle)
     set (SYNERGY_BUNDLE_APP_DIR ${SYNERGY_BUNDLE_DIR}/Synergy.app)
     set (SYNERGY_BUNDLE_BINARY_DIR ${SYNERGY_BUNDLE_APP_DIR}/Contents/MacOS)
-	
+
 	generate_versionfile()
     configure_files (${SYNERGY_BUNDLE_SOURCE_DIR} ${SYNERGY_BUNDLE_DIR})
 endif()
@@ -380,10 +432,10 @@ endif()
 #
 # Linux installation
 #
-if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+if (${CMAKE_SYSTEM_NAME} MATCHES "Linux|.*BSD|DragonFly")
     configure_files (${CMAKE_CURRENT_SOURCE_DIR}/dist/rpm ${CMAKE_BINARY_DIR}/rpm)
     install(FILES res/synergy.svg DESTINATION share/icons/hicolor/scalable/apps)
-    if("${VERSION_MAJOR}" STREQUAL "2") 
+    if("${VERSION_MAJOR}" STREQUAL "2")
         install(FILES res/synergy2.desktop DESTINATION share/applications)
     else()
         install(FILES res/synergy.desktop DESTINATION share/applications)

@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <array>
+#include <iterator>
 #include "synergy/ProtocolUtil.h"
 #include "io/IStream.h"
 #include "base/Log.h"
@@ -27,6 +29,57 @@
 //
 // ProtocolUtil
 //
+
+namespace  {
+
+void
+writeInt(UInt32 Value, UInt32 Length, std::vector<UInt8>& Buffer)
+{
+    switch(Length)
+    {
+        case 1:
+            Buffer.push_back(static_cast<UInt8>(Value & 0xffU));
+            break;
+        case 4:
+            Buffer.push_back(static_cast<UInt8>((Value >> 24U) & 0xffU));
+            Buffer.push_back(static_cast<UInt8>((Value >> 16U) & 0xffU));
+            Buffer.push_back(static_cast<UInt8>((Value >>  8U) & 0xffU));
+            Buffer.push_back(static_cast<UInt8>( Value         & 0xffU));
+            break;
+        case 2:
+            Buffer.push_back(static_cast<UInt8>((Value >> 8U) & 0xffU));
+            Buffer.push_back(static_cast<UInt8>( Value        & 0xffU));
+            break;
+        default:
+             assert(0 && "invalid integer format length");
+             return;
+    }
+}
+
+template <typename T>
+void
+writeVectorInt(const std::vector<T>* VectorData, std::vector<UInt8>& Buffer)
+{
+    if (VectorData) {
+        const std::vector<T>& Vector = *VectorData;
+        writeInt((UInt32)Vector.size(), sizeof(UInt32), Buffer);
+        for (size_t i = 0; i < Vector.size(); ++i) {
+            writeInt(Vector[i], sizeof(T), Buffer);
+        }
+    }
+}
+
+void
+writeString(const String* StringData, std::vector<UInt8>& Buffer)
+{
+    const UInt32 len = (StringData != NULL) ? (UInt32)StringData->size() : 0;
+    writeInt(len, sizeof(len), Buffer);
+    if (len != 0) {
+        std::copy(StringData->begin(), StringData->end(), std::back_inserter(Buffer));
+    }
+}
+
+} //namespace
 
 void
 ProtocolUtil::writef(synergy::IStream* stream, const char* fmt, ...)
@@ -47,21 +100,25 @@ ProtocolUtil::writef(synergy::IStream* stream, const char* fmt, ...)
 bool
 ProtocolUtil::readf(synergy::IStream* stream, const char* fmt, ...)
 {
-    assert(stream != NULL);
-    assert(fmt != NULL);
-    LOG((CLOG_DEBUG2 "readf(%s)", fmt));
+    bool result = false;
 
-    bool result;
-    va_list args;
-    va_start(args, fmt);
-    try {
-        vreadf(stream, fmt, args);
-        result = true;
+    if (stream && fmt) {
+        LOG((CLOG_DEBUG2 "readf(%s)", fmt));
+        va_list args;
+        va_start(args, fmt);
+        try {
+            vreadf(stream, fmt, args);
+            result = true;
+        }
+        catch (XIO&) {
+            result = false;
+        }
+        catch (const std::bad_alloc&) {
+            result = false;
+        }
+        va_end(args);
     }
-    catch (XIO&) {
-        result = false;
-    }
-    va_end(args);
+
     return result;
 }
 
@@ -78,18 +135,16 @@ ProtocolUtil::vwritef(synergy::IStream* stream,
     }
 
     // fill buffer
-    UInt8* buffer = new UInt8[size];
-    writef(buffer, fmt, args);
+    std::vector<UInt8> Buffer;
+    writef(Buffer, fmt, args);
 
     try {
         // write buffer
-        stream->write(buffer, size);
+        stream->write(Buffer.data(), size);
         LOG((CLOG_DEBUG2 "wrote %d bytes", size));
-
-        delete[] buffer;
     }
-    catch (XBase&) {
-        delete[] buffer;
+    catch (const XBase& exception) {
+        LOG((CLOG_DEBUG2 "Exception <%s> during wrote %d bytes into stream", exception.what(), size));
         throw;
     }
 }
@@ -108,138 +163,56 @@ ProtocolUtil::vreadf(synergy::IStream* stream, const char* fmt, va_list args)
             UInt32 len = eatLength(&fmt);
             switch (*fmt) {
             case 'i': {
-                // check for valid length
-                assert(len == 1 || len == 2 || len == 4);
-
-                // read the data
-                UInt8 buffer[4];
-                read(stream, buffer, len);
-
-                // convert it
-                void* v = va_arg(args, void*);
+                void* destination = va_arg(args, void*);
                 switch (len) {
-                case 1:
-                    // 1 byte integer
-                    *static_cast<UInt8*>(v) = buffer[0];
-                    LOG((CLOG_DEBUG2 "readf: read %d byte integer: %d (0x%x)", len, *static_cast<UInt8*>(v), *static_cast<UInt8*>(v)));
-                    break;
-
-                case 2:
-                    // 2 byte integer
-                    *static_cast<UInt16*>(v) =
-                        static_cast<UInt16>(
-                        (static_cast<UInt16>(buffer[0]) << 8) |
-                         static_cast<UInt16>(buffer[1]));
-                    LOG((CLOG_DEBUG2 "readf: read %d byte integer: %d (0x%x)", len, *static_cast<UInt16*>(v), *static_cast<UInt16*>(v)));
-                    break;
-
-                case 4:
-                    // 4 byte integer
-                    *static_cast<UInt32*>(v) =
-                        (static_cast<UInt32>(buffer[0]) << 24) |
-                        (static_cast<UInt32>(buffer[1]) << 16) |
-                        (static_cast<UInt32>(buffer[2]) <<  8) |
-                         static_cast<UInt32>(buffer[3]);
-                    LOG((CLOG_DEBUG2 "readf: read %d byte integer: %d (0x%x)", len, *static_cast<UInt32*>(v), *static_cast<UInt32*>(v)));
-                    break;
+                    case 1:
+                        // 1 byte integer
+                        *static_cast<UInt8*>(destination) = read1ByteInt(stream);
+                        break;
+                    case 2:
+                        // 2 byte integer
+                        *static_cast<UInt16*>(destination) = read2BytesInt(stream);
+                        break;
+                    case 4:
+                        // 4 byte integer
+                        *static_cast<UInt32*>(destination) = read4BytesInt(stream);
+                        break;
+                    default:
+                        //the length is wrong
+                        LOG((CLOG_ERR "read: length to be read is wrong: '%d' should be 1,2, or 4", len));
+                        assert(false); //assert for debugging
+                        break;
                 }
                 break;
             }
 
             case 'I': {
-                // check for valid length
-                assert(len == 1 || len == 2 || len == 4);
-
-                // read the vector length
-                UInt8 buffer[4];
-                read(stream, buffer, 4);
-                UInt32 n = (static_cast<UInt32>(buffer[0]) << 24) |
-                           (static_cast<UInt32>(buffer[1]) << 16) |
-                           (static_cast<UInt32>(buffer[2]) <<  8) |
-                            static_cast<UInt32>(buffer[3]);
-
-                // convert it
-                void* v = va_arg(args, void*);
+                void* destination = va_arg(args, void*);
                 switch (len) {
-                case 1:
-                    // 1 byte integer
-                    for (UInt32 i = 0; i < n; ++i) {
-                        read(stream, buffer, 1);
-                        static_cast<std::vector<UInt8>*>(v)->push_back(
-                            buffer[0]);
-                        LOG((CLOG_DEBUG2 "readf: read %d byte integer[%d]: %d (0x%x)", len, i, static_cast<std::vector<UInt8>*>(v)->back(), static_cast<std::vector<UInt8>*>(v)->back()));
-                    }
-                    break;
-
-                case 2:
-                    // 2 byte integer
-                    for (UInt32 i = 0; i < n; ++i) {
-                        read(stream, buffer, 2);
-                        static_cast<std::vector<UInt16>*>(v)->push_back(
-                            static_cast<UInt16>(
-                            (static_cast<UInt16>(buffer[0]) << 8) |
-                             static_cast<UInt16>(buffer[1])));
-                        LOG((CLOG_DEBUG2 "readf: read %d byte integer[%d]: %d (0x%x)", len, i, static_cast<std::vector<UInt16>*>(v)->back(), static_cast<std::vector<UInt16>*>(v)->back()));
-                    }
-                    break;
-
-                case 4:
-                    // 4 byte integer
-                    for (UInt32 i = 0; i < n; ++i) {
-                        read(stream, buffer, 4);
-                        static_cast<std::vector<UInt32>*>(v)->push_back(
-                            (static_cast<UInt32>(buffer[0]) << 24) |
-                            (static_cast<UInt32>(buffer[1]) << 16) |
-                            (static_cast<UInt32>(buffer[2]) <<  8) |
-                             static_cast<UInt32>(buffer[3]));
-                        LOG((CLOG_DEBUG2 "readf: read %d byte integer[%d]: %d (0x%x)", len, i, static_cast<std::vector<UInt32>*>(v)->back(), static_cast<std::vector<UInt32>*>(v)->back()));
-                    }
-                    break;
+                    case 1:
+                        // 1 byte integer
+                        readVector1ByteInt(stream, *static_cast<std::vector<UInt8>*>(destination));
+                        break;
+                    case 2:
+                        // 2 byte integer
+                        readVector2BytesInt(stream, *static_cast<std::vector<UInt16>*>(destination));
+                        break;
+                    case 4:
+                        // 4 byte integer
+                        readVector4BytesInt(stream, *static_cast<std::vector<UInt32>*>(destination));
+                        break;
+                    default:
+                        //the length is wrong
+                        LOG((CLOG_ERR "read: length to be read is wrong: '%d' should be 1,2, or 4", len));
+                        assert(false); //assert for debugging
+                        break;
                 }
                 break;
             }
 
             case 's': {
-                assert(len == 0);
-
-                // read the string length
-                UInt8 buffer[128];
-                read(stream, buffer, 4);
-                UInt32 len = (static_cast<UInt32>(buffer[0]) << 24) |
-                             (static_cast<UInt32>(buffer[1]) << 16) |
-                             (static_cast<UInt32>(buffer[2]) <<  8) |
-                              static_cast<UInt32>(buffer[3]);
-
-                // use a fixed size buffer if its big enough
-                const bool useFixed = (len <= sizeof(buffer));
-
-                // allocate a buffer to read the data
-                UInt8* sBuffer = buffer;
-                if (!useFixed) {
-                    sBuffer = new UInt8[len];
-                }
-
-                // read the data
-                try {
-                    read(stream, sBuffer, len);
-                }
-                catch (...) {
-                    if (!useFixed) {
-                        delete[] sBuffer;
-                    }
-                    throw;
-                }
-
-                LOG((CLOG_DEBUG2 "readf: read %d byte string", len));
-
-                // save the data
-                String* dst = va_arg(args, String*);
-                dst->assign((const char*)sBuffer, len);
-
-                // release the buffer
-                if (!useFixed) {
-                    delete[] sBuffer;
-                }
+                String* destination = va_arg(args, String*);
+                readBytes(stream, len, destination);
                 break;
             }
 
@@ -337,11 +310,11 @@ ProtocolUtil::getLength(const char* fmt, va_list args)
     return n;
 }
 
-void
-ProtocolUtil::writef(void* buffer, const char* fmt, va_list args)
-{
-    UInt8* dst = static_cast<UInt8*>(buffer);
 
+
+void
+ProtocolUtil::writef(std::vector<UInt8>& buffer, const char* fmt, va_list args)
+{
     while (*fmt) {
         if (*fmt == '%') {
             // format specifier.  determine argument size.
@@ -350,30 +323,7 @@ ProtocolUtil::writef(void* buffer, const char* fmt, va_list args)
             switch (*fmt) {
             case 'i': {
                 const UInt32 v = va_arg(args, UInt32);
-                switch (len) {
-                case 1:
-                    // 1 byte integer
-                    *dst++ = static_cast<UInt8>(v & 0xff);
-                    break;
-
-                case 2:
-                    // 2 byte integer
-                    *dst++ = static_cast<UInt8>((v >> 8) & 0xff);
-                    *dst++ = static_cast<UInt8>( v       & 0xff);
-                    break;
-
-                case 4:
-                    // 4 byte integer
-                    *dst++ = static_cast<UInt8>((v >> 24) & 0xff);
-                    *dst++ = static_cast<UInt8>((v >> 16) & 0xff);
-                    *dst++ = static_cast<UInt8>((v >>  8) & 0xff);
-                    *dst++ = static_cast<UInt8>( v        & 0xff);
-                    break;
-
-                default:
-                    assert(0 && "invalid integer format length");
-                    return;
-                }
+                writeInt(v, len, buffer);
                 break;
             }
 
@@ -381,52 +331,22 @@ ProtocolUtil::writef(void* buffer, const char* fmt, va_list args)
                 switch (len) {
                 case 1: {
                     // 1 byte integers
-                    const std::vector<UInt8>* list =
-                        va_arg(args, const std::vector<UInt8>*);
-                    const UInt32 n = (UInt32)list->size();
-                    *dst++ = static_cast<UInt8>((n >> 24) & 0xff);
-                    *dst++ = static_cast<UInt8>((n >> 16) & 0xff);
-                    *dst++ = static_cast<UInt8>((n >>  8) & 0xff);
-                    *dst++ = static_cast<UInt8>( n        & 0xff);
-                    for (UInt32 i = 0; i < n; ++i) {
-                        *dst++ = (*list)[i];
-                    }
+                    const std::vector<UInt8>* list = va_arg(args, const std::vector<UInt8>*);
+                    writeVectorInt(list, buffer);
                     break;
                 }
 
                 case 2: {
                     // 2 byte integers
-                    const std::vector<UInt16>* list =
-                        va_arg(args, const std::vector<UInt16>*);
-                    const UInt32 n = (UInt32)list->size();
-                    *dst++ = static_cast<UInt8>((n >> 24) & 0xff);
-                    *dst++ = static_cast<UInt8>((n >> 16) & 0xff);
-                    *dst++ = static_cast<UInt8>((n >>  8) & 0xff);
-                    *dst++ = static_cast<UInt8>( n        & 0xff);
-                    for (UInt32 i = 0; i < n; ++i) {
-                        const UInt16 v = (*list)[i];
-                        *dst++ = static_cast<UInt8>((v >> 8) & 0xff);
-                        *dst++ = static_cast<UInt8>( v       & 0xff);
-                    }
+                    const std::vector<UInt16>* list = va_arg(args, const std::vector<UInt16>*);
+                    writeVectorInt(list, buffer);
                     break;
                 }
 
                 case 4: {
                     // 4 byte integers
-                    const std::vector<UInt32>* list =
-                        va_arg(args, const std::vector<UInt32>*);
-                    const UInt32 n = (UInt32)list->size();
-                    *dst++ = static_cast<UInt8>((n >> 24) & 0xff);
-                    *dst++ = static_cast<UInt8>((n >> 16) & 0xff);
-                    *dst++ = static_cast<UInt8>((n >>  8) & 0xff);
-                    *dst++ = static_cast<UInt8>( n        & 0xff);
-                    for (UInt32 i = 0; i < n; ++i) {
-                        const UInt32 v = (*list)[i];
-                        *dst++ = static_cast<UInt8>((v >> 24) & 0xff);
-                        *dst++ = static_cast<UInt8>((v >> 16) & 0xff);
-                        *dst++ = static_cast<UInt8>((v >>  8) & 0xff);
-                        *dst++ = static_cast<UInt8>( v        & 0xff);
-                    }
+                    const std::vector<UInt32>* list = va_arg(args, const std::vector<UInt32>*);
+                    writeVectorInt(list, buffer);
                     break;
                 }
 
@@ -440,15 +360,7 @@ ProtocolUtil::writef(void* buffer, const char* fmt, va_list args)
             case 's': {
                 assert(len == 0);
                 const String* src = va_arg(args, String*);
-                const UInt32 len = (src != NULL) ? (UInt32)src->size() : 0;
-                *dst++ = static_cast<UInt8>((len >> 24) & 0xff);
-                *dst++ = static_cast<UInt8>((len >> 16) & 0xff);
-                *dst++ = static_cast<UInt8>((len >>  8) & 0xff);
-                *dst++ = static_cast<UInt8>( len        & 0xff);
-                if (len != 0) {
-                    memcpy(dst, src->data(), len);
-                    dst += len;
-                }
+                writeString(src, buffer);
                 break;
             }
 
@@ -456,18 +368,14 @@ ProtocolUtil::writef(void* buffer, const char* fmt, va_list args)
                 assert(len == 0);
                 const UInt32 len = va_arg(args, UInt32);
                 const UInt8* src = va_arg(args, UInt8*);
-                *dst++ = static_cast<UInt8>((len >> 24) & 0xff);
-                *dst++ = static_cast<UInt8>((len >> 16) & 0xff);
-                *dst++ = static_cast<UInt8>((len >>  8) & 0xff);
-                *dst++ = static_cast<UInt8>( len        & 0xff);
-                memcpy(dst, src, len);
-                dst += len;
+                writeInt(len, sizeof(len), buffer);
+                std::copy(src, src + len, std::back_inserter(buffer));
                 break;
             }
 
             case '%':
                 assert(len == 0);
-                *dst++ = '%';
+                buffer.push_back('%');
                 break;
 
             default:
@@ -479,7 +387,7 @@ ProtocolUtil::writef(void* buffer, const char* fmt, va_list args)
         }
         else {
             // copy regular character
-            *dst++ = *fmt++;
+            buffer.push_back(*fmt++);
         }
     }
 }
@@ -529,6 +437,118 @@ ProtocolUtil::read(synergy::IStream* stream, void* vbuffer, UInt32 count)
         // prepare for next read
         buffer += n;
         count  -= n;
+    }
+}
+
+UInt8 ProtocolUtil::read1ByteInt(synergy::IStream * stream)
+{
+    const UInt32 BufferSize = 1;
+    std::array<UInt8, 1> buffer = {};
+    read(stream, buffer.data(), BufferSize);
+
+    UInt8 Result = buffer[0];
+    LOG((CLOG_DEBUG2 "readf: read 1 byte integer: %d (0x%x)", Result, Result));
+
+    return Result;
+}
+
+UInt16 ProtocolUtil::read2BytesInt(synergy::IStream * stream)
+{
+    const UInt32 BufferSize = 2;
+    std::array<UInt8, BufferSize> buffer = {};
+    read(stream, buffer.data(), BufferSize);
+
+    UInt16 Result = static_cast<UInt16>((static_cast<UInt16>(buffer[0]) << 8) | static_cast<UInt16>(buffer[1]));
+    LOG((CLOG_DEBUG2 "readf: read 2 byte integer: %d (0x%x)", Result, Result));
+
+    return Result;
+}
+
+UInt32 ProtocolUtil::read4BytesInt(synergy::IStream * stream)
+{
+    const int BufferSize = 4;
+    std::array<UInt8, BufferSize> buffer = {};
+    read(stream, buffer.data(), BufferSize);
+
+    UInt32 Result = (static_cast<UInt32>(buffer[0]) << 24) |
+                    (static_cast<UInt32>(buffer[1]) << 16) |
+                    (static_cast<UInt32>(buffer[2]) <<  8) |
+                    (static_cast<UInt32>(buffer[3]));
+
+    LOG((CLOG_DEBUG2 "readf: read 4 byte integer: %d (0x%x)", Result, Result));
+
+    return Result;
+}
+
+void ProtocolUtil::readVector1ByteInt(synergy::IStream* stream, std::vector<UInt8>& destination)
+{
+    UInt32 size = read4BytesInt(stream);
+    for (UInt32 i = 0; i < size; ++i) {
+        destination.push_back(read1ByteInt(stream));
+    }
+}
+
+void ProtocolUtil::readVector2BytesInt(synergy::IStream* stream, std::vector<UInt16>& destination)
+{
+    UInt32 size = read4BytesInt(stream);
+    for (UInt32 i = 0; i < size; ++i) {
+        destination.push_back(read2BytesInt(stream));
+    }
+}
+
+void ProtocolUtil::readVector4BytesInt(synergy::IStream* stream, std::vector<UInt32>& destination)
+{
+    UInt32 size = read4BytesInt(stream);
+    for (UInt32 i = 0; i < size; ++i) {
+        destination.push_back(read4BytesInt(stream));
+    }
+}
+
+void ProtocolUtil::readBytes(synergy::IStream * stream, UInt32 len, String* destination) {
+    assert(len == 0);
+
+    // read the string length
+    UInt8 buffer[128];
+    len = read4BytesInt(stream);
+    // use a fixed size buffer if its big enough
+    const bool useFixed = (len <= sizeof(buffer));
+
+    // allocate a buffer to read the data
+    UInt8* sBuffer = buffer;
+    if (!useFixed) {
+        try{
+            sBuffer = new UInt8[len];
+        }
+        catch (std::bad_alloc & exception) {
+            // Added try catch due to GHSA-chfm-333q-gfpp
+            LOG((CLOG_ERR "ALLOC: Unable to allocate memory %d bytes", len));
+            LOG((CLOG_DEBUG "bad_alloc detected: Do you have enough free memory?"));
+            throw exception;
+        }
+    }
+
+    // read the data
+    try {
+        read(stream, sBuffer, len);
+    }
+    catch (...) {
+        if (!useFixed) {
+            delete[] sBuffer;
+        }
+        throw;
+    }
+
+    LOG((CLOG_DEBUG2 "readf: read %d byte string", len));
+
+    // save the data
+
+    if (destination){
+        destination->assign((const char*)sBuffer, len);
+    }
+
+    // release the buffer
+    if (!useFixed) {
+        delete[] sBuffer;
     }
 }
 

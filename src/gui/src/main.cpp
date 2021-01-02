@@ -16,9 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define TRAY_RETRY_COUNT 10
-#define TRAY_RETRY_WAIT 2000
-
 #include "QSynergyApplication.h"
 #include "LicenseManager.h"
 #include "MainWindow.h"
@@ -46,7 +43,6 @@ public:
     }
 };
 
-int waitForTray();
 QString getSystemSettingPath();
 
 #if defined(Q_OS_MAC)
@@ -80,11 +76,6 @@ int main(int argc, char* argv[])
     }
 #endif
 
-    if (!waitForTray())
-    {
-        return -1;
-    }
-
 #ifndef Q_OS_WIN
     QApplication::setQuitOnLastWindowClosed(false);
 #endif
@@ -98,7 +89,7 @@ int main(int argc, char* argv[])
     app.switchTranslator(appConfig.language());
 
 #ifdef SYNERGY_ENTERPRISE
-    MainWindow mainWindow(settings, appConfig);
+    MainWindow mainWindow(appConfig);
 #else
     MainWindow mainWindow(appConfig, licenseManager);
 #endif
@@ -119,31 +110,6 @@ int main(int argc, char* argv[])
 
     return app.exec();
 }
-
-int waitForTray()
-{
-    // on linux, the system tray may not be available immediately after logging in,
-    // so keep retrying but give up after a short time.
-    int trayAttempts = 0;
-    while (true)
-    {
-        if (QSystemTrayIcon::isSystemTrayAvailable())
-        {
-            break;
-        }
-
-        if (++trayAttempts > TRAY_RETRY_COUNT)
-        {
-            QMessageBox::critical(NULL, "Synergy",
-                QObject::tr("System tray is unavailable, don't close your window."));
-            return true;
-        }
-
-        QThreadImpl::msleep(TRAY_RETRY_WAIT);
-    }
-    return true;
-}
-
 
 
 #if defined(Q_OS_MAC)

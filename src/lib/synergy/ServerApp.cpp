@@ -65,7 +65,7 @@
 //
 
 ServerApp::ServerApp(IEventQueue* events, CreateTaskBarReceiverFunc createTaskBarReceiver) :
-    App(events, createTaskBarReceiver, new ServerArgs()),
+    App(events, createTaskBarReceiver, new lib::synergy::ServerArgs()),
     m_server(NULL),
     m_serverState(kUninitialized),
     m_serverScreen(NULL),
@@ -119,10 +119,11 @@ ServerApp::help()
 #  define WINAPI_ARGS
 #  define WINAPI_INFO
 #endif
-
-    char buffer[3000];
-    sprintf(
+    static const int buffer_size = 3000;
+    char buffer[buffer_size];
+    snprintf(
         buffer,
+        buffer_size,
         "Usage: %s"
         " [--address <address>]"
         " [--config <pathname>]"
@@ -788,7 +789,7 @@ ServerApp::runInner(int argc, char** argv, ILogOutputter* outputter, StartupFunc
 {
     // general initialization
     m_synergyAddress = new NetworkAddress;
-    args().m_config         = new Config(m_events);
+    args().m_config         = std::make_shared<Config>(m_events);
     args().m_pname          = ARCH->getBasename(argv[0]);
 
     // install caller's output filter
@@ -805,7 +806,6 @@ ServerApp::runInner(int argc, char** argv, ILogOutputter* outputter, StartupFunc
         delete m_taskBarReceiver;
     }
 
-    delete args().m_config;
     delete m_synergyAddress;
     return result;
 }
